@@ -78,13 +78,42 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import android.content.Context
 
+@Serializable
 data class ChatMessage(
     val text: String,
     val isFromUser: Boolean,
     val id: String,
     val isTyping: Boolean = false
 )
+
+object ChatStorageHelper {
+    fun saveChatToFile(context: Context, messages: List<ChatMessage>, filename: String = "chat.json") {
+        try {
+            val json = Json.encodeToString(messages)
+            context.openFileOutput(filename, Context.MODE_PRIVATE).use {
+                it.write(json.toByteArray())
+            }
+        } catch (e: Exception) {
+            // Handle error (log it, show user message, etc.)
+            e.printStackTrace()
+        }
+    }
+
+    fun loadChatFromFile(context: Context, filename: String = "chat.json"): List<ChatMessage> {
+        return try {
+            val json = context.openFileInput(filename).bufferedReader().use { it.readText() }
+            Json.decodeFromString<List<ChatMessage>>(json)
+        } catch (e: Exception) {
+            // Return empty list if file doesn't exist or can't be read
+            emptyList()
+        }
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -122,6 +151,9 @@ fun AnimeGirlChatScreen() {
     var isMuted by remember { mutableStateOf(false) }
     var typingTrigger by remember { mutableStateOf(0L) }
     
+    // Get context for file operations
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
     // LazyListState to control scrolling
     val listState = rememberLazyListState()
     
@@ -130,9 +162,13 @@ fun AnimeGirlChatScreen() {
     val imeBottom = WindowInsets.ime.getBottom(density)
     val isKeyboardVisible = imeBottom > 0
     
-    // Add initial message
+    // Load chat from file when screen starts
     LaunchedEffect(Unit) {
-        if (messages.isEmpty()) {
+        val savedMessages = ChatStorageHelper.loadChatFromFile(context)
+        if (savedMessages.isNotEmpty()) {
+            messages = savedMessages
+        } else {
+            // Add initial message if no saved chat
             messages = listOf(
                 ChatMessage(
                     text = "Hi Sewell i am very smart and cute",
@@ -140,6 +176,13 @@ fun AnimeGirlChatScreen() {
                     id = "initial"
                 )
             )
+        }
+    }
+    
+    // Save chat to file whenever messages change
+    LaunchedEffect(messages) {
+        if (messages.isNotEmpty()) {
+            ChatStorageHelper.saveChatToFile(context, messages)
         }
     }
     
