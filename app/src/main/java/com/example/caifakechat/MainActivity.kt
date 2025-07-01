@@ -82,6 +82,20 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import android.content.Context
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.rememberAsyncImagePainter
+import coil.request.ImageRequest
 
 @Serializable
 data class ChatMessage(
@@ -150,6 +164,12 @@ fun AnimeGirlChatScreen() {
     var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
     var isMuted by remember { mutableStateOf(false) }
     var typingTrigger by remember { mutableStateOf(0L) }
+    var backPressCount by remember { mutableStateOf(0) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
+    var customInitialMessage by remember { mutableStateOf("Hi Sewell i am very smart and cute") }
+    var tempInitialMessage by remember { mutableStateOf("") }
+    var aiProfilePictureUri by remember { mutableStateOf<Uri?>(null) }
+    var userProfilePictureUri by remember { mutableStateOf<Uri?>(null) }
     
     // Get context for file operations
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -162,6 +182,50 @@ fun AnimeGirlChatScreen() {
     val imeBottom = WindowInsets.ime.getBottom(density)
     val isKeyboardVisible = imeBottom > 0
     
+    // Image picker launchers
+    val aiImagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        aiProfilePictureUri = uri
+        // Save AI profile picture URI
+        context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
+            .edit()
+            .putString("ai_profile_picture", uri?.toString())
+            .apply()
+    }
+    
+    val userImagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        userProfilePictureUri = uri
+        // Save user profile picture URI
+        context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
+            .edit()
+            .putString("user_profile_picture", uri?.toString())
+            .apply()
+    }
+    
+    // Load custom initial message
+    LaunchedEffect(Unit) {
+        val savedInitialMessage = context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
+            .getString("initial_message", "Hi Sewell i am very smart and cute") ?: "Hi Sewell i am very smart and cute"
+        customInitialMessage = savedInitialMessage
+        tempInitialMessage = savedInitialMessage
+        
+        // Load saved profile pictures
+        val savedAiProfilePicture = context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
+            .getString("ai_profile_picture", null)
+        if (savedAiProfilePicture != null) {
+            aiProfilePictureUri = Uri.parse(savedAiProfilePicture)
+        }
+        
+        val savedUserProfilePicture = context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
+            .getString("user_profile_picture", null)
+        if (savedUserProfilePicture != null) {
+            userProfilePictureUri = Uri.parse(savedUserProfilePicture)
+        }
+    }
+    
     // Load chat from file when screen starts
     LaunchedEffect(Unit) {
         val savedMessages = ChatStorageHelper.loadChatFromFile(context)
@@ -171,7 +235,7 @@ fun AnimeGirlChatScreen() {
             // Add initial message if no saved chat
             messages = listOf(
                 ChatMessage(
-                    text = "Hi Sewell i am very smart and cute",
+                    text = customInitialMessage,
                     isFromUser = false,
                     id = "initial"
                 )
@@ -201,6 +265,12 @@ fun AnimeGirlChatScreen() {
         }
     }
     
+    LaunchedEffect(isKeyboardVisible) {
+        if (!isKeyboardVisible && messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.lastIndex)
+        }
+    }
+    
     // Force scroll to bottom on initial composition and when keyboard opens
     LaunchedEffect(Unit) {
         // Scroll to the very bottom immediately when the screen loads
@@ -218,11 +288,20 @@ fun AnimeGirlChatScreen() {
         }
     }
     
-    LaunchedEffect(isKeyboardVisible) {
-        if (!isKeyboardVisible && messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.lastIndex)
+    // Add this in the composable scope (not inside the click handler)
+    LaunchedEffect(typingTrigger) {
+        if (messages.isNotEmpty() && messages.last().isTyping) {
+            kotlinx.coroutines.delay(1500)
+            messages = messages.dropLast(1) + ChatMessage(
+                text = "Hello",
+                isFromUser = false,
+                id = (System.currentTimeMillis() + 1).toString()
+            )
         }
     }
+    
+    // Find the last anime girl message index
+    val lastAnimeGirlIndex = messages.indexOfLast { !it.isFromUser }
 
     val profileColor = Color(0xFF1565C0)
     val playButtonColor = Color(0xFFA0C9FF) // Light blue for play icon
@@ -245,9 +324,6 @@ fun AnimeGirlChatScreen() {
         }
     }
 
-    // Find the last anime girl message index
-    val lastAnimeGirlIndex = messages.indexOfLast { !it.isFromUser }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -266,7 +342,17 @@ fun AnimeGirlChatScreen() {
                     }
                 },
                 navigationIcon = {
-                    Box(modifier = Modifier.padding(start = 16.dp, end = 4.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .padding(start = 16.dp, end = 4.dp)
+                            .clickable {
+                                backPressCount++
+                                if (backPressCount >= 3) {
+                                    showSettingsDialog = true
+                                    backPressCount = 0
+                                }
+                            }
+                    ) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
                             contentDescription = "Back",
@@ -313,14 +399,30 @@ fun AnimeGirlChatScreen() {
                                     .clip(CircleShape)
                                     .background(profileColor)
                             )
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = "Profile",
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(CircleShape),
-                                tint = iconTint
-                            )
+                            if (aiProfilePictureUri != null) {
+                                Image(
+                                    painter = rememberAsyncImagePainter(
+                                        ImageRequest.Builder(context)
+                                            .data(aiProfilePictureUri)
+                                            .size(200, 200)
+                                            .build()
+                                    ),
+                                    contentDescription = "AI Profile",
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = "Profile",
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape),
+                                    tint = iconTint
+                                )
+                            }
                         }
                     }
                 },
@@ -433,12 +535,26 @@ fun AnimeGirlChatScreen() {
                                     .background(Color.White),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = "Profile",
-                                    modifier = Modifier.size(20.dp),
-                                    tint = Color.Black
-                                )
+                                if (userProfilePictureUri != null) {
+                                    Image(
+                                        painter = rememberAsyncImagePainter(
+                                            ImageRequest.Builder(context)
+                                                .data(userProfilePictureUri)
+                                                .size(200, 200)
+                                                .build()
+                                        ),
+                                        contentDescription = "User Profile Picture",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = "User Profile Picture",
+                                        modifier = Modifier.size(21.dp),
+                                        tint = Color.Black
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -457,15 +573,32 @@ fun AnimeGirlChatScreen() {
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Default.Person,
-                                            contentDescription = "Anime Girl",
-                                            modifier = Modifier
-                                                .size(28.dp)
-                                                .clip(CircleShape)
-                                                .zIndex(1f),
-                                            tint = iconTint
-                                        )
+                                        if (aiProfilePictureUri != null) {
+                                            Image(
+                                                painter = rememberAsyncImagePainter(
+                                                    ImageRequest.Builder(context)
+                                                        .data(aiProfilePictureUri)
+                                                        .size(200, 200)
+                                                        .build()
+                                                ),
+                                                contentDescription = "Anime Girl",
+                                                modifier = Modifier
+                                                    .size(34.dp)
+                                                    .clip(CircleShape)
+                                                    .zIndex(1f),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.Person,
+                                                contentDescription = "Anime Girl",
+                                                modifier = Modifier
+                                                    .size(34.dp)
+                                                    .clip(CircleShape)
+                                                    .zIndex(1f),
+                                                tint = iconTint
+                                            )
+                                        }
                                         Box(
                                             modifier = Modifier
                                                 .size(34.dp)
@@ -710,17 +843,222 @@ fun AnimeGirlChatScreen() {
         }
         }
     )
-
-    // Add this in the composable scope (not inside the click handler)
-    LaunchedEffect(typingTrigger) {
-        if (messages.isNotEmpty() && messages.last().isTyping) {
-            kotlinx.coroutines.delay(1500)
-            messages = messages.dropLast(1) + ChatMessage(
-                text = "Hello",
-                isFromUser = false,
-                id = (System.currentTimeMillis() + 1).toString()
-            )
-        }
+    
+    // Settings Dialog
+    if (showSettingsDialog) {
+        AlertDialog(
+            onDismissRequest = { showSettingsDialog = false },
+            title = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Settings",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = iconTint
+                    )
+                    IconButton(onClick = { showSettingsDialog = false }) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = iconTint
+                        )
+                    }
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = "Initial Message",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = iconTint
+                    )
+                    TextField(
+                        value = tempInitialMessage,
+                        onValueChange = { tempInitialMessage = it },
+                        placeholder = { Text("Enter initial message...", color = placeholderColor) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = sentBubbleColor,
+                            unfocusedContainerColor = sentBubbleColor,
+                            focusedTextColor = iconTint,
+                            unfocusedTextColor = iconTint,
+                            focusedPlaceholderColor = placeholderColor,
+                            unfocusedPlaceholderColor = placeholderColor,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Text(
+                        text = "Profile Pictures",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = iconTint
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        // AI Profile Picture
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "AI Chatbot",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = iconTint
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .clip(CircleShape)
+                                    .border(2.dp, iconTint, CircleShape)
+                                    .clickable { aiImagePicker.launch("image/*") },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (aiProfilePictureUri != null) {
+                                    Image(
+                                        painter = rememberAsyncImagePainter(
+                                            ImageRequest.Builder(context)
+                                                .data(aiProfilePictureUri)
+                                                .size(200, 200)
+                                                .build()
+                                        ),
+                                        contentDescription = "AI Profile Picture",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = "Add AI Profile Picture",
+                                        modifier = Modifier.size(40.dp),
+                                        tint = iconTint
+                                    )
+                                }
+                                if (aiProfilePictureUri == null) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Add",
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .align(Alignment.BottomEnd),
+                                        tint = playButtonColor
+                                    )
+                                }
+                            }
+                        }
+                        
+                        // User Profile Picture
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "You",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = iconTint
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .clip(CircleShape)
+                                    .border(2.dp, iconTint, CircleShape)
+                                    .clickable { userImagePicker.launch("image/*") },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (userProfilePictureUri != null) {
+                                    Image(
+                                        painter = rememberAsyncImagePainter(
+                                            ImageRequest.Builder(context)
+                                                .data(userProfilePictureUri)
+                                                .size(200, 200)
+                                                .build()
+                                        ),
+                                        contentDescription = "User Profile Picture",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = "Add User Profile Picture",
+                                        modifier = Modifier.size(40.dp),
+                                        tint = iconTint
+                                    )
+                                }
+                                if (userProfilePictureUri == null) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Add",
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .align(Alignment.BottomEnd),
+                                        tint = playButtonColor
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Button(
+                        onClick = {
+                            // Delete all messages and reset to initial
+                            messages = listOf(
+                                ChatMessage(
+                                    text = customInitialMessage,
+                                    isFromUser = false,
+                                    id = "initial"
+                                )
+                            )
+                            // Clear storage
+                            context.deleteFile("chat.json")
+                            showSettingsDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.Red
+                        )
+                    ) {
+                        Text("Delete Messages")
+                    }
+                    
+                    Button(
+                        onClick = {
+                            // Save new initial message
+                            customInitialMessage = tempInitialMessage
+                            context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
+                                .edit()
+                                .putString("initial_message", tempInitialMessage)
+                                .apply()
+                            showSettingsDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = playButtonColor
+                        )
+                    ) {
+                        Text("Save")
+                    }
+                }
+            },
+            containerColor = backgroundColor,
+            shape = RoundedCornerShape(16.dp)
+        )
     }
 }
 
