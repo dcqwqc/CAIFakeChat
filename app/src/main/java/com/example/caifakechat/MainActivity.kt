@@ -753,6 +753,7 @@ fun AnimeGirlChatScreen() {
                                 ) {
                                     Box(
                                         modifier = Modifier
+                                            .widthIn(max = 305.dp) // Ends exactly where AI message starts (42.dp from left)
                                             .background(Color(0xFF024474), RoundedCornerShape(
                                                 topStart = 16.dp,
                                                 topEnd = 3.dp,
@@ -862,6 +863,7 @@ fun AnimeGirlChatScreen() {
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Box(
                                             modifier = Modifier
+                                                .widthIn(max = 299.dp) // Ends exactly where user message starts (36.dp from right)
                                                 .background(
                                                     chatBubbleColor,
                                                     RoundedCornerShape(
