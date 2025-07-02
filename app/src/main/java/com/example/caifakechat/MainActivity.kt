@@ -941,152 +941,202 @@ fun AnimeGirlChatScreen() {
                     }
             
             // Message Input Bubble with Send Button - Fixed at bottom, outside of scrollable area
-                    Row(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 20.dp, end = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(start = 20.dp, end = 8.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .background(sentBubbleColor, RoundedCornerShape(24.dp))
-                                .height(52.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                TextField(
-                                    value = message,
-                                    onValueChange = { message = it },
-                                    placeholder = { Text("Message...", color = placeholderColor) },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .align(Alignment.CenterVertically)
-                                        .padding(vertical = 0.dp),
-                                    colors = TextFieldDefaults.colors(
-                                        focusedContainerColor = Color.Transparent,
-                                        unfocusedContainerColor = Color.Transparent,
-                                        focusedTextColor = iconTint,
-                                        unfocusedTextColor = iconTint,
-                                        focusedPlaceholderColor = placeholderColor,
-                                        unfocusedPlaceholderColor = placeholderColor,
-                                        unfocusedIndicatorColor = Color.Transparent,
-                                        focusedIndicatorColor = Color.Transparent,
-                                        disabledIndicatorColor = Color.Transparent,
-                                        errorIndicatorColor = Color.Transparent
-                                    ),
-                                    shape = RoundedCornerShape(24.dp),
-                                    maxLines = 1,
-                                    singleLine = true
-                                )
-                                AnimatedVisibility(
-                                    visible = message.isBlank(),
-                                    enter = scaleIn(animationSpec = tween(200)),
-                                    exit = scaleOut(animationSpec = tween(200))
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.image2),
-                                        contentDescription = "Attach Image",
-                                        modifier = Modifier
-                                            .size(25.dp)
-                                            .padding(start = 0.dp, end = 6.dp)
-                                            .clickable { /* Attach image */ },
-                                        tint = iconTint
+                        // Refresh icon that appears when stars are shown - Floating above everything
+                        val lastAnimeGirlIndex = messages.indexOfLast { !it.isFromUser }
+                        val shouldShowRefresh = lastAnimeGirlIndex >= 0 && 
+                            lastAnimeGirlIndex < messages.size && 
+                            !messages[lastAnimeGirlIndex].isTyping && 
+                            messages[lastAnimeGirlIndex].id != "initial"
+                        
+                        if (shouldShowRefresh) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .offset(x = (-8).dp, y = (-40).dp)
+                                    .zIndex(1000f)
+                                    .size(40.dp)
+                                    .background(
+                                        color = Color.Transparent,
+                                        shape = CircleShape
                                     )
-                                }
-                                Spacer(modifier = Modifier.width(8.dp))
-                                AnimatedVisibility(
-                                    visible = message.isBlank(),
-                                    enter = scaleIn(animationSpec = tween(200)),
-                                    exit = scaleOut(animationSpec = tween(200))
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.sticker),
-                                        contentDescription = "Emoji",
-                                        modifier = Modifier
-                                            .size(25.dp)
-                                            .padding(start = 0.dp, end = 6.dp)
-                                            .clickable { /* Emoji */ },
-                                        tint = iconTint
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(8.dp))
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(0.dp))
-                        Box(
-                            modifier = Modifier
-                                .size(60.dp)
-                                .clickable {
-                                    if (message.isNotBlank()) {
-                                        val userMessage = ChatMessage(
-                                            text = message,
-                                            isFromUser = true,
-                                            id = System.currentTimeMillis().toString()
-                                        )
-                                // Add typing indicator
-                                val typingMessage = ChatMessage(
-                                    text = "",
-                                            isFromUser = false,
-                                    id = "typing",
-                                    isTyping = true
-                                        )
-                                messages.add(userMessage)
-                                messages.add(typingMessage)
-                                        message = ""
-                                typingTrigger = System.currentTimeMillis()
-                                        
-                                        // Hide keyboard if setting is disabled
-                                        if (!keepKeyboardOpen) {
-                                            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-                                            val currentFocus = (context as? android.app.Activity)?.currentFocus
-                                            currentFocus?.let { focus ->
-                                                imm.hideSoftInputFromWindow(focus.windowToken, 0)
-                                            }
+                                    .clickable {
+                                        // Refresh functionality - regenerate the last AI response
+                                        if (lastAnimeGirlIndex >= 0 && lastAnimeGirlIndex < messages.size) {
+                                            // Remove the last AI message
+                                            messages.removeAt(lastAnimeGirlIndex)
+                                            
+                                            // Add typing indicator
+                                            val typingMessage = ChatMessage(
+                                                text = "",
+                                                isFromUser = false,
+                                                id = "typing",
+                                                isTyping = true
+                                            )
+                                            messages.add(typingMessage)
+                                            typingTrigger = System.currentTimeMillis()
                                         }
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (message.isNotBlank()) {
-                                // Circle background with send icon when text is entered
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .background(
-                                            color = playButtonColor,
-                                            shape = CircleShape
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.send2),
-                                        contentDescription = "Send",
-                                        modifier = Modifier
-                                            .size(25.dp)
-                                            .graphicsLayer(rotationZ = -45f)
-                                            .offset(x = (-1).dp, y = 4.dp), // Shift left and down
-                                        tint = Color.Black
-                                    )
-                                }
-
-
-
-
-                            } else {
-                                // Original icon when no text
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
                                 Icon(
-                                    painter = painterResource(R.drawable.send),
-                                    contentDescription = "Send",
-                                    modifier = Modifier.size(20.dp),
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Refresh Response",
+                                    modifier = Modifier.size(32.dp),
                                     tint = iconTint
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.width(0.dp))
+                        
+                        Row(
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(sentBubbleColor, RoundedCornerShape(24.dp))
+                                    .height(52.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    TextField(
+                                        value = message,
+                                        onValueChange = { message = it },
+                                        placeholder = { Text("Message...", color = placeholderColor) },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .align(Alignment.CenterVertically)
+                                            .padding(vertical = 0.dp),
+                                        colors = TextFieldDefaults.colors(
+                                            focusedContainerColor = Color.Transparent,
+                                            unfocusedContainerColor = Color.Transparent,
+                                            focusedTextColor = iconTint,
+                                            unfocusedTextColor = iconTint,
+                                            focusedPlaceholderColor = placeholderColor,
+                                            unfocusedPlaceholderColor = placeholderColor,
+                                            unfocusedIndicatorColor = Color.Transparent,
+                                            focusedIndicatorColor = Color.Transparent,
+                                            disabledIndicatorColor = Color.Transparent,
+                                            errorIndicatorColor = Color.Transparent
+                                        ),
+                                        shape = RoundedCornerShape(24.dp),
+                                        maxLines = 1,
+                                        singleLine = true
+                                    )
+                                    AnimatedVisibility(
+                                        visible = message.isBlank(),
+                                        enter = scaleIn(animationSpec = tween(200)),
+                                        exit = scaleOut(animationSpec = tween(200))
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.image2),
+                                            contentDescription = "Attach Image",
+                                            modifier = Modifier
+                                                .size(25.dp)
+                                                .padding(start = 0.dp, end = 6.dp)
+                                                .clickable { /* Attach image */ },
+                                            tint = iconTint
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    AnimatedVisibility(
+                                        visible = message.isBlank(),
+                                        enter = scaleIn(animationSpec = tween(200)),
+                                        exit = scaleOut(animationSpec = tween(200))
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.sticker),
+                                            contentDescription = "Emoji",
+                                            modifier = Modifier
+                                                .size(25.dp)
+                                                .padding(start = 0.dp, end = 6.dp)
+                                                .clickable { /* Emoji */ },
+                                            tint = iconTint
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(0.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(60.dp)
+                                    .clickable {
+                                        if (message.isNotBlank()) {
+                                            val userMessage = ChatMessage(
+                                                text = message,
+                                                isFromUser = true,
+                                                id = System.currentTimeMillis().toString()
+                                            )
+                                    // Add typing indicator
+                                    val typingMessage = ChatMessage(
+                                        text = "",
+                                                isFromUser = false,
+                                        id = "typing",
+                                        isTyping = true
+                                            )
+                                    messages.add(userMessage)
+                                    messages.add(typingMessage)
+                                            message = ""
+                                    typingTrigger = System.currentTimeMillis()
+                                            
+                                            // Hide keyboard if setting is disabled
+                                            if (!keepKeyboardOpen) {
+                                                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                                                val currentFocus = (context as? android.app.Activity)?.currentFocus
+                                                currentFocus?.let { focus ->
+                                                    imm.hideSoftInputFromWindow(focus.windowToken, 0)
+                                                }
+                                            }
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (message.isNotBlank()) {
+                                    // Circle background with send icon when text is entered
+                                    Box(
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .background(
+                                                color = playButtonColor,
+                                                shape = CircleShape
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.send2),
+                                            contentDescription = "Send",
+                                            modifier = Modifier
+                                                .size(25.dp)
+                                                .graphicsLayer(rotationZ = -45f)
+                                                .offset(x = (-1).dp, y = 4.dp), // Shift left and down
+                                            tint = Color.Black
+                                        )
+                                    }
+
+
+
+
+                                } else {
+                                    // Original icon when no text
+                                    Icon(
+                                        painter = painterResource(R.drawable.send),
+                                        contentDescription = "Send",
+                                        modifier = Modifier.size(20.dp),
+                                        tint = iconTint
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(0.dp))
+                        }
                     }
             
             // Footer - Fixed at bottom, outside of scrollable area
