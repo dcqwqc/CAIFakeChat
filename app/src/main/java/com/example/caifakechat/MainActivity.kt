@@ -96,6 +96,8 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
+import coil.compose.AsyncImage
+import androidx.compose.material.icons.filled.Delete
 
 @Serializable
 data class ChatMessage(
@@ -125,6 +127,62 @@ object ChatStorageHelper {
         } catch (e: Exception) {
             // Return empty list if file doesn't exist or can't be read
             emptyList()
+        }
+    }
+    
+    fun saveImageToLocalStorage(context: Context, uri: Uri, imageType: String): String? {
+        return try {
+            // Create filename based on type
+            val filename = "${imageType}_profile.jpg"
+            
+            // Remove old image if exists
+            context.deleteFile(filename)
+            
+            // Copy new image to local storage
+            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                context.openFileOutput(filename, Context.MODE_PRIVATE).use { outputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
+            
+            // Return the local file path
+            context.getFileStreamPath(filename).absolutePath
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+    
+    fun loadImageFromLocalStorage(context: Context, imageType: String): String? {
+        return try {
+            val filename = "${imageType}_profile.jpg"
+            val file = context.getFileStreamPath(filename)
+            if (file.exists()) {
+                file.absolutePath
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+    
+    fun deleteImageFromLocalStorage(context: Context, imageType: String) {
+        try {
+            val filename = "${imageType}_profile.jpg"
+            context.deleteFile(filename)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    
+    fun isValidImageUri(context: Context, uriString: String?): Boolean {
+        if (uriString == null) return false
+        return try {
+            val uri = Uri.parse(uriString)
+            context.contentResolver.openInputStream(uri)?.use { true } ?: false
+        } catch (e: Exception) {
+            false
         }
     }
 }
@@ -161,7 +219,7 @@ fun GreetingPreview() {
 @Composable
 fun AnimeGirlChatScreen() {
     var message by remember { mutableStateOf("") }
-    var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
+    var messages = remember { mutableStateListOf<ChatMessage>() }
     var isMuted by remember { mutableStateOf(false) }
     var typingTrigger by remember { mutableStateOf(0L) }
     var backPressCount by remember { mutableStateOf(0) }
@@ -186,43 +244,75 @@ fun AnimeGirlChatScreen() {
     val aiImagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        aiProfilePictureUri = uri
-        // Save AI profile picture URI
-        context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
-            .edit()
-            .putString("ai_profile_picture", uri?.toString())
-            .apply()
+        if (uri != null) {
+            // Save image to local storage
+            val localPath = ChatStorageHelper.saveImageToLocalStorage(context, uri, "ai")
+            if (localPath != null) {
+                aiProfilePictureUri = Uri.fromFile(java.io.File(localPath))
+                // Save local path to preferences
+                context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("ai_profile_picture", localPath)
+                    .apply()
+            }
+        }
     }
     
     val userImagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        userProfilePictureUri = uri
-        // Save user profile picture URI
-        context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
-            .edit()
-            .putString("user_profile_picture", uri?.toString())
-            .apply()
+        if (uri != null) {
+            // Save image to local storage
+            val localPath = ChatStorageHelper.saveImageToLocalStorage(context, uri, "user")
+            if (localPath != null) {
+                userProfilePictureUri = Uri.fromFile(java.io.File(localPath))
+                // Save local path to preferences
+                context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("user_profile_picture", localPath)
+                    .apply()
+            }
+        }
     }
     
-    // Load custom initial message
+    // Load saved profile pictures
     LaunchedEffect(Unit) {
         val savedInitialMessage = context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
             .getString("initial_message", "Hi Sewell i am very smart and cute") ?: "Hi Sewell i am very smart and cute"
         customInitialMessage = savedInitialMessage
         tempInitialMessage = savedInitialMessage
         
-        // Load saved profile pictures
+        // Load saved profile pictures with validation
         val savedAiProfilePicture = context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
             .getString("ai_profile_picture", null)
         if (savedAiProfilePicture != null) {
-            aiProfilePictureUri = Uri.parse(savedAiProfilePicture)
+            // Try to load from local storage first
+            val localPath = ChatStorageHelper.loadImageFromLocalStorage(context, "ai")
+            if (localPath != null) {
+                aiProfilePictureUri = Uri.fromFile(java.io.File(localPath))
+            } else {
+                // Clear invalid path
+                context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
+                    .edit()
+                    .remove("ai_profile_picture")
+                    .apply()
+            }
         }
         
         val savedUserProfilePicture = context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
             .getString("user_profile_picture", null)
         if (savedUserProfilePicture != null) {
-            userProfilePictureUri = Uri.parse(savedUserProfilePicture)
+            // Try to load from local storage first
+            val localPath = ChatStorageHelper.loadImageFromLocalStorage(context, "user")
+            if (localPath != null) {
+                userProfilePictureUri = Uri.fromFile(java.io.File(localPath))
+            } else {
+                // Clear invalid path
+                context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
+                    .edit()
+                    .remove("user_profile_picture")
+                    .apply()
+            }
         }
     }
     
@@ -230,16 +320,15 @@ fun AnimeGirlChatScreen() {
     LaunchedEffect(Unit) {
         val savedMessages = ChatStorageHelper.loadChatFromFile(context)
         if (savedMessages.isNotEmpty()) {
-            messages = savedMessages
+            messages.clear()
+            messages.addAll(savedMessages)
         } else {
-            // Add initial message if no saved chat
-            messages = listOf(
-                ChatMessage(
-                    text = customInitialMessage,
-                    isFromUser = false,
-                    id = "initial"
-                )
-            )
+            messages.clear()
+            messages.add(ChatMessage(
+                text = customInitialMessage,
+                isFromUser = false,
+                id = "initial"
+            ))
         }
     }
     
@@ -292,11 +381,12 @@ fun AnimeGirlChatScreen() {
     LaunchedEffect(typingTrigger) {
         if (messages.isNotEmpty() && messages.last().isTyping) {
             kotlinx.coroutines.delay(1500)
-            messages = messages.dropLast(1) + ChatMessage(
+            messages.removeAt(messages.lastIndex)
+            messages.add(ChatMessage(
                 text = "Hello",
                 isFromUser = false,
                 id = (System.currentTimeMillis() + 1).toString()
-            )
+            ))
         }
     }
     
@@ -770,7 +860,8 @@ fun AnimeGirlChatScreen() {
                                     id = "typing",
                                     isTyping = true
                                 )
-                                messages = messages + userMessage + typingMessage
+                                messages.add(userMessage)
+                                messages.add(typingMessage)
                                 message = ""
                                 typingTrigger = System.currentTimeMillis()
                             }
@@ -904,108 +995,159 @@ fun AnimeGirlChatScreen() {
                         color = iconTint
                     )
                     
+                    // AI Profile Picture Section
+                    Text(
+                        text = "AI Profile Picture",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+                    )
+                    
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        // AI Profile Picture
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
+                        // AI Profile Picture Display
+                        Box(
+                            modifier = Modifier
+                                .size(60.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
                         ) {
-                            Text(
-                                text = "AI Chatbot",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = iconTint
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Box(
-                                modifier = Modifier
-                                    .size(80.dp)
-                                    .clip(CircleShape)
-                                    .border(2.dp, iconTint, CircleShape)
-                                    .clickable { aiImagePicker.launch("image/*") },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (aiProfilePictureUri != null) {
-                                    Image(
-                                        painter = rememberAsyncImagePainter(
-                                            ImageRequest.Builder(context)
-                                                .data(aiProfilePictureUri)
-                                                .size(200, 200)
-                                                .build()
-                                        ),
-                                        contentDescription = "AI Profile Picture",
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.Person,
-                                        contentDescription = "Add AI Profile Picture",
-                                        modifier = Modifier.size(40.dp),
-                                        tint = iconTint
-                                    )
-                                }
-                                if (aiProfilePictureUri == null) {
-                                    Icon(
-                                        imageVector = Icons.Default.Add,
-                                        contentDescription = "Add",
-                                        modifier = Modifier
-                                            .size(24.dp)
-                                            .align(Alignment.BottomEnd),
-                                        tint = playButtonColor
-                                    )
-                                }
+                            if (aiProfilePictureUri != null) {
+                                AsyncImage(
+                                    model = aiProfilePictureUri,
+                                    contentDescription = "AI Profile Picture",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = "AI Profile Picture",
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .align(Alignment.Center),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                         
-                        // User Profile Picture
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "You",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = iconTint
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Box(
-                                modifier = Modifier
-                                    .size(80.dp)
-                                    .clip(CircleShape)
-                                    .border(2.dp, iconTint, CircleShape)
-                                    .clickable { userImagePicker.launch("image/*") },
-                                contentAlignment = Alignment.Center
+                        Spacer(modifier = Modifier.width(16.dp))
+                        
+                        Column(modifier = Modifier.weight(1f)) {
+                            Button(
+                                onClick = { aiImagePicker.launch("image/*") },
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                if (userProfilePictureUri != null) {
-                                    Image(
-                                        painter = rememberAsyncImagePainter(
-                                            ImageRequest.Builder(context)
-                                                .data(userProfilePictureUri)
-                                                .size(200, 200)
-                                                .build()
-                                        ),
-                                        contentDescription = "User Profile Picture",
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Select AI Profile Picture")
+                            }
+                            
+                            if (aiProfilePictureUri != null) {
+                                TextButton(
+                                    onClick = {
+                                        aiProfilePictureUri = null
+                                        // Delete from local storage
+                                        ChatStorageHelper.deleteImageFromLocalStorage(context, "ai")
+                                        // Clear from preferences
+                                        context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
+                                            .edit()
+                                            .remove("ai_profile_picture")
+                                            .apply()
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
                                     Icon(
-                                        imageVector = Icons.Default.Person,
-                                        contentDescription = "Add User Profile Picture",
-                                        modifier = Modifier.size(40.dp),
-                                        tint = iconTint
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
                                     )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Remove AI Profile Picture")
                                 }
-                                if (userProfilePictureUri == null) {
+                            }
+                        }
+                    }
+                    
+                    // User Profile Picture Section
+                    Text(
+                        text = "User Profile Picture",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+                    )
+                    
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        // User Profile Picture Display
+                        Box(
+                            modifier = Modifier
+                                .size(60.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            if (userProfilePictureUri != null) {
+                                AsyncImage(
+                                    model = userProfilePictureUri,
+                                    contentDescription = "User Profile Picture",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = "User Profile Picture",
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .align(Alignment.Center),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.width(16.dp))
+                        
+                        Column(modifier = Modifier.weight(1f)) {
+                            Button(
+                                onClick = { userImagePicker.launch("image/*") },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Select User Profile Picture")
+                            }
+                            
+                            if (userProfilePictureUri != null) {
+                                TextButton(
+                                    onClick = {
+                                        userProfilePictureUri = null
+                                        // Delete from local storage
+                                        ChatStorageHelper.deleteImageFromLocalStorage(context, "user")
+                                        // Clear from preferences
+                                        context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
+                                            .edit()
+                                            .remove("user_profile_picture")
+                                            .apply()
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
                                     Icon(
-                                        imageVector = Icons.Default.Add,
-                                        contentDescription = "Add",
-                                        modifier = Modifier
-                                            .size(24.dp)
-                                            .align(Alignment.BottomEnd),
-                                        tint = playButtonColor
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
                                     )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Remove User Profile Picture")
                                 }
                             }
                         }
@@ -1019,23 +1161,32 @@ fun AnimeGirlChatScreen() {
                 ) {
                     Button(
                         onClick = {
-                            // Delete all messages and reset to initial
-                            messages = listOf(
-                                ChatMessage(
-                                    text = customInitialMessage,
-                                    isFromUser = false,
-                                    id = "initial"
-                                )
-                            )
-                            // Clear storage
-                            context.deleteFile("chat.json")
+                            messages.clear()
+                            ChatStorageHelper.saveChatToFile(context, messages)
+                            // Also clear profile pictures from local storage
+                            ChatStorageHelper.deleteImageFromLocalStorage(context, "ai")
+                            ChatStorageHelper.deleteImageFromLocalStorage(context, "user")
+                            aiProfilePictureUri = null
+                            userProfilePictureUri = null
+                            // Clear all preferences
+                            context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
+                                .edit()
+                                .clear()
+                                .apply()
                             showSettingsDialog = false
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.Red
-                        )
+                            containerColor = MaterialTheme.colorScheme.error
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Delete Messages")
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Delete Chat History & Reset All Settings")
                     }
                     
                     Button(
