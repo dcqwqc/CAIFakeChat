@@ -585,6 +585,37 @@ fun AnimeGirlChatScreen() {
             .apply()
     }
 
+    // --- Script Management Helpers ---
+    fun saveCurrentScriptToListAndStorage() {
+        if (aiScripts.isNotEmpty() && currentScriptIndex < aiScripts.size) {
+            aiScripts[currentScriptIndex] = aiScripts[currentScriptIndex].copy(
+                replies = aiScriptReplies.toList(),
+                currentIndex = aiScriptIndex
+            )
+        }
+        ChatStorageHelper.saveAIScripts(context, aiScripts.toList(), currentScriptIndex)
+    }
+    fun switchScript(index: Int) {
+        saveCurrentScriptToListAndStorage()
+        currentScriptIndex = index
+        val script = aiScripts.getOrNull(currentScriptIndex)
+        aiScriptReplies.clear()
+        aiScriptReplies.addAll(script?.replies ?: emptyList())
+        aiScriptIndex = script?.currentIndex ?: 0
+    }
+    fun createNewScript() {
+        saveCurrentScriptToListAndStorage()
+        aiScripts.add(AIScript("New Script", emptyList(), 0))
+        currentScriptIndex = aiScripts.size - 1
+        aiScriptReplies.clear()
+        aiScriptIndex = 0
+        saveCurrentScriptToListAndStorage()
+    }
+    fun renameScript(index: Int, newName: String) {
+        aiScripts[index] = aiScripts[index].copy(name = newName)
+        saveCurrentScriptToListAndStorage()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -1481,10 +1512,7 @@ fun AnimeGirlChatScreen() {
                             Spacer(Modifier.weight(1f))
                             Button(
                                 onClick = {
-                                    aiScripts.add(AIScript("New Script", emptyList(), 0))
-                                    currentScriptIndex = aiScripts.size - 1
-                                    aiScriptReplies.clear()
-                                    aiScriptIndex = 0
+                                    createNewScript()
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = playButtonColor)
                             ) {
@@ -1519,7 +1547,6 @@ fun AnimeGirlChatScreen() {
                                 aiScripts.forEachIndexed { index, script ->
                                     var isRenaming by remember { mutableStateOf(false) }
                                     var newName by remember { mutableStateOf(script.name) }
-                                    
                                     if (isRenaming) {
                                         DropdownMenuItem(
                                             text = { 
@@ -1546,7 +1573,7 @@ fun AnimeGirlChatScreen() {
                                                     IconButton(
                                                         onClick = {
                                                             if (newName.isNotBlank()) {
-                                                                aiScripts[index] = aiScripts[index].copy(name = newName)
+                                                                renameScript(index, newName)
                                                             }
                                                             isRenaming = false
                                                         }
@@ -1573,10 +1600,7 @@ fun AnimeGirlChatScreen() {
                                                 Text(script.name, color = iconTint)
                                             },
                                             onClick = {
-                                                currentScriptIndex = index
-                                                aiScriptReplies.clear()
-                                                aiScriptReplies.addAll(script.replies)
-                                                aiScriptIndex = script.currentIndex
+                                                switchScript(index)
                                                 expanded = false
                                             },
                                             trailingIcon = {
@@ -1592,18 +1616,16 @@ fun AnimeGirlChatScreen() {
                                                         onClick = {
                                                             // Don't allow deleting the last script
                                                             if (aiScripts.size > 1) {
+                                                                saveCurrentScriptToListAndStorage()
                                                                 aiScripts.removeAt(index)
-                                                                // If we deleted the current script, switch to the first available script
                                                                 if (currentScriptIndex >= aiScripts.size) {
                                                                     currentScriptIndex = 0
                                                                 }
-                                                                // Load the current script data
                                                                 val currentScript = aiScripts.getOrNull(currentScriptIndex)
-                                                                if (currentScript != null) {
-                                                                    aiScriptReplies.clear()
-                                                                    aiScriptReplies.addAll(currentScript.replies)
-                                                                    aiScriptIndex = currentScript.currentIndex
-                                                                }
+                                                                aiScriptReplies.clear()
+                                                                aiScriptReplies.addAll(currentScript?.replies ?: emptyList())
+                                                                aiScriptIndex = currentScript?.currentIndex ?: 0
+                                                                saveCurrentScriptToListAndStorage()
                                                                 expanded = false
                                                             }
                                                         }
@@ -1752,6 +1774,7 @@ fun AnimeGirlChatScreen() {
                                         IconButton(onClick = {
                                             aiScriptReplies[idx] = editText
                                             isEditing = false
+                                            saveCurrentScriptToListAndStorage()
                                         }) {
                                             Icon(Icons.Default.Check, contentDescription = "Save", tint = iconTint)
                                         }
@@ -1767,7 +1790,10 @@ fun AnimeGirlChatScreen() {
                                             Icon(Icons.Default.Edit, contentDescription = "Edit", tint = iconTint)
                                         }
                                     }
-                                    IconButton(onClick = { aiScriptReplies.removeAt(idx) }) {
+                                    IconButton(onClick = { 
+                                        aiScriptReplies.removeAt(idx)
+                                        saveCurrentScriptToListAndStorage()
+                                    }) {
                                         Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red)
                                     }
                                 }
@@ -1803,6 +1829,7 @@ fun AnimeGirlChatScreen() {
                                     if (newReply.isNotBlank()) {
                                         aiScriptReplies.add(newReply)
                                         newReply = ""
+                                        saveCurrentScriptToListAndStorage()
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(
