@@ -407,6 +407,15 @@ fun AnimeGirlChatScreen() {
                     id = "initial"
             ))
         }
+        
+        // Ensure scroll to bottom after initial message is loaded
+        delay(100) // Small delay to ensure layout is complete
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.lastIndex)
+            // Additional scroll to ensure stars are visible
+            delay(50)
+            listState.animateScrollToItem(messages.lastIndex)
+        }
     }
     
     // Load AI scripts from file when screen starts
@@ -453,6 +462,9 @@ fun AnimeGirlChatScreen() {
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(Int.MAX_VALUE)
+            // Additional scroll to ensure we're at the bottom
+            delay(50)
+            listState.animateScrollToItem(Int.MAX_VALUE)
         }
     }
     
@@ -473,6 +485,13 @@ fun AnimeGirlChatScreen() {
     // Force scroll to bottom on initial composition and when keyboard opens
     LaunchedEffect(Unit) {
         // Scroll to the very bottom immediately when the screen loads
+        delay(200) // Longer delay to ensure layout is ready
+        listState.animateScrollToItem(Int.MAX_VALUE)
+        // Additional scroll to ensure we're at the very bottom
+        delay(100)
+        listState.animateScrollToItem(Int.MAX_VALUE)
+        // Final scroll to ensure stars are visible
+        delay(50)
         listState.animateScrollToItem(Int.MAX_VALUE)
     }
     
@@ -892,8 +911,8 @@ fun AnimeGirlChatScreen() {
                                         }
                                     }
                             }
-                            // Only show stars for the last anime girl message and not for typing
-                            if (index == lastAnimeGirlIndex && !chatMessage.isTyping) {
+                            // Only show stars for the last anime girl message, not for typing, and not for initial message
+                            if (index == lastAnimeGirlIndex && !chatMessage.isTyping && chatMessage.id != "initial") {
                                     Spacer(modifier = Modifier.height(7.dp))
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
