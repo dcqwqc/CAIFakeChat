@@ -110,7 +110,8 @@ data class ChatMessage(
     val text: String,
     val isFromUser: Boolean,
     val id: String,
-    val isTyping: Boolean = false
+    val isTyping: Boolean = false,
+    val isTypewriterAnimated: Boolean = false
 )
 
 @Serializable
@@ -903,14 +904,30 @@ fun AnimeGirlChatScreen() {
                                         ) {
                                             BouncingDots(color = iconTint)
                                         }
+                                    } else if (!chatMessage.isTypewriterAnimated && chatMessage.id != "initial") {
+                                        var animated by remember { mutableStateOf(false) }
+                                        TypewriterText(
+                                            text = chatMessage.text,
+                                            color = iconTint,
+                                            modifier = Modifier,
+                                            typingSpeed = 30L,
+                                            onAnimationEnd = {
+                                                animated = true
+                                                // Mark this message as animated in the messages list
+                                                val idx = messages.indexOfFirst { it.id == chatMessage.id }
+                                                if (idx != -1) {
+                                                    messages[idx] = messages[idx].copy(isTypewriterAnimated = true)
+                                                }
+                                            }
+                                        )
                                     } else {
-                                            Text(
-                                                text = chatMessage.text,
-                                                color = iconTint,
-                                                fontSize = 16.sp
-                                            )
-                                        }
+                                        Text(
+                                            text = chatMessage.text,
+                                            color = iconTint,
+                                            fontSize = 16.sp
+                                        )
                                     }
+                                }
                             }
                             // Only show stars for the last anime girl message, not for typing, and not for initial message
                             if (index == lastAnimeGirlIndex && !chatMessage.isTyping && chatMessage.id != "initial") {
@@ -2007,4 +2024,30 @@ fun BouncingDots(color: Color, dotSize: Dp = 8.dp, space: Dp = 6.dp) {
             if (i < 2) Spacer(Modifier.width(space))
         }
     }
+}
+
+@Composable
+fun TypewriterText(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    typingSpeed: Long = 30L, // ms per character
+    onAnimationEnd: (() -> Unit)? = null
+) {
+    var visibleText by remember { mutableStateOf("") }
+    val finished = visibleText.length == text.length
+
+    LaunchedEffect(text) {
+        visibleText = ""
+        for (i in 1..text.length) {
+            visibleText = text.substring(0, i)
+            delay(typingSpeed)
+        }
+        onAnimationEnd?.invoke()
+    }
+    Text(
+        text = visibleText,
+        modifier = modifier,
+        color = color
+    )
 }
