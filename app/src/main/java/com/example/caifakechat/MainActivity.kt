@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.AccountBox
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -920,7 +921,7 @@ fun AnimeGirlChatScreen() {
                                     ) {
                                         repeat(4) {
                                             Icon(
-                                                imageVector = Icons.Default.Star,
+                                                painter = painterResource(R.drawable.star2),
                                                 contentDescription = "Star",
                                                 tint = Color.White,
                                                 modifier = Modifier.size(20.dp)
@@ -930,7 +931,18 @@ fun AnimeGirlChatScreen() {
                                         }
                                             }
                                         }
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "Refresh",
+                                            tint = Color.White,
+                                            modifier = Modifier
+                                                .size(20.dp)
+                                                .clickable { /* Refresh functionality */ }
+                                        )
                                     }
+                                    
+
                                 }
                             }
                             Spacer(modifier = Modifier.height(8.dp))
@@ -1060,7 +1072,7 @@ fun AnimeGirlChatScreen() {
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Send,
+                                        painter = painterResource(R.drawable.send2),
                                         contentDescription = "Send",
                                         modifier = Modifier
                                             .size(25.dp)
