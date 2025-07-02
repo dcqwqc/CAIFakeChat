@@ -118,6 +118,19 @@ data class AIScriptData(
     val currentIndex: Int = 0
 )
 
+@Serializable
+data class AIScript(
+    val name: String,
+    val replies: List<String> = emptyList(),
+    val currentIndex: Int = 0
+)
+
+@Serializable
+data class AIScriptsCollection(
+    val scripts: List<AIScript> = emptyList(),
+    val currentScriptIndex: Int = 0
+)
+
 object ChatStorageHelper {
     fun saveChatToFile(context: Context, messages: List<ChatMessage>, filename: String = "chat.json") {
         try {
@@ -216,11 +229,36 @@ object ChatStorageHelper {
             AIScriptData()
         }
     }
+    
+    fun saveAIScripts(context: Context, scripts: List<AIScript>, currentIndex: Int, filename: String = "ai_scripts.json") {
+        try {
+            val data = AIScriptsCollection(scripts, currentIndex)
+            val json = Json.encodeToString(data)
+            context.openFileOutput(filename, Context.MODE_PRIVATE).use {
+                it.write(json.toByteArray())
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    
+    fun loadAIScripts(context: Context, filename: String = "ai_scripts.json"): AIScriptsCollection {
+        return try {
+            val json = context.openFileInput(filename).bufferedReader().use { it.readText() }
+            Json.decodeFromString<AIScriptsCollection>(json)
+        } catch (e: Exception) {
+            AIScriptsCollection()
+        }
+    }
 }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Remove splash screen immediately - simpler approach that works on all versions
+        window.setBackgroundDrawableResource(android.R.color.transparent)
+        
         enableEdgeToEdge()
         setContent {
             CAIFakeChatTheme {
@@ -261,9 +299,12 @@ fun AnimeGirlChatScreen() {
     var userProfilePictureUri by remember { mutableStateOf<Uri?>(null) }
     var aiScriptReplies = remember { mutableStateListOf<String>() }
     var aiScriptIndex by remember { mutableStateOf(0) }
+    var aiScripts = remember { mutableStateListOf<AIScript>() }
+    var currentScriptIndex by remember { mutableStateOf(0) }
     var aiDisplayName by remember { mutableStateOf("Daenerys Targaryen") }
     var greetingAuthor by remember { mutableStateOf("Daenerys Targaryen and their greeting was authored by") }
     var atQwqc by remember { mutableStateOf("@Character.Ai") }
+    var keepKeyboardOpen by remember { mutableStateOf(false) }
     
     // Get context for file operations
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -368,12 +409,25 @@ fun AnimeGirlChatScreen() {
         }
     }
     
-    // Load AI script from file when screen starts
+    // Load AI scripts from file when screen starts
     LaunchedEffect(Unit) {
-        val scriptData = ChatStorageHelper.loadAIScript(context)
-        aiScriptReplies.clear()
-        aiScriptReplies.addAll(scriptData.replies)
-        aiScriptIndex = scriptData.currentIndex
+        val scriptsData = ChatStorageHelper.loadAIScripts(context)
+        aiScripts.clear()
+        aiScripts.addAll(scriptsData.scripts)
+        currentScriptIndex = scriptsData.currentScriptIndex
+        
+        // Initialize with default script if none exist
+        if (aiScripts.isEmpty()) {
+            aiScripts.add(AIScript("Default Script", emptyList(), 0))
+        }
+        
+        // Load current script data
+        val currentScript = aiScripts.getOrNull(currentScriptIndex)
+        if (currentScript != null) {
+            aiScriptReplies.clear()
+            aiScriptReplies.addAll(currentScript.replies)
+            aiScriptIndex = currentScript.currentIndex
+        }
     }
     
     // Save chat to file whenever messages change
@@ -383,9 +437,16 @@ fun AnimeGirlChatScreen() {
         }
     }
     
-    // Save AI script to file whenever replies or index change
-    LaunchedEffect(aiScriptReplies, aiScriptIndex) {
-        ChatStorageHelper.saveAIScript(context, aiScriptReplies, aiScriptIndex)
+    // Save AI scripts to file whenever they change
+    LaunchedEffect(aiScripts, currentScriptIndex, aiScriptReplies, aiScriptIndex) {
+        // Update current script with latest data
+        if (aiScripts.isNotEmpty() && currentScriptIndex < aiScripts.size) {
+            aiScripts[currentScriptIndex] = aiScripts[currentScriptIndex].copy(
+                replies = aiScriptReplies.toList(),
+                currentIndex = aiScriptIndex
+            )
+        }
+        ChatStorageHelper.saveAIScripts(context, aiScripts.toList(), currentScriptIndex)
     }
     
     // Always scroll to the bottom when messages change
@@ -490,14 +551,16 @@ fun AnimeGirlChatScreen() {
         val prefs = context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
         greetingAuthor = prefs.getString("greeting_author", "Daenerys Targaryen and their greeting was authored by") ?: "Daenerys Targaryen and their greeting was authored by"
         atQwqc = prefs.getString("at_qwqc", "@Character.Ai") ?: "@Character.Ai"
+        keepKeyboardOpen = prefs.getBoolean("keep_keyboard_open", false)
     }
     
     // Save greeting author and @qwqc whenever they change
-    LaunchedEffect(greetingAuthor, atQwqc) {
+    LaunchedEffect(greetingAuthor, atQwqc, keepKeyboardOpen) {
         context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
             .edit()
             .putString("greeting_author", greetingAuthor)
             .putString("at_qwqc", atQwqc)
+            .putBoolean("keep_keyboard_open", keepKeyboardOpen)
             .apply()
     }
 
@@ -829,7 +892,7 @@ fun AnimeGirlChatScreen() {
                             }
                             // Only show stars for the last anime girl message and not for typing
                             if (index == lastAnimeGirlIndex && !chatMessage.isTyping) {
-                                    Spacer(modifier = Modifier.height(0.dp))
+                                    Spacer(modifier = Modifier.height(7.dp))
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.Center
@@ -951,6 +1014,15 @@ fun AnimeGirlChatScreen() {
                                 messages.add(typingMessage)
                                         message = ""
                                 typingTrigger = System.currentTimeMillis()
+                                        
+                                        // Hide keyboard if setting is disabled
+                                        if (!keepKeyboardOpen) {
+                                            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                                            val currentFocus = (context as? android.app.Activity)?.currentFocus
+                                            currentFocus?.let { focus ->
+                                                imm.hideSoftInputFromWindow(focus.windowToken, 0)
+                                            }
+                                        }
                                     }
                                 },
                             contentAlignment = Alignment.Center
@@ -1053,6 +1125,32 @@ fun AnimeGirlChatScreen() {
             text = {
                 if (settingsTabIndex == 0) {
                     Column(modifier = Modifier.fillMaxWidth()) {
+                        // Keyboard Toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Keep Keyboard Open",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = iconTint
+                            )
+                            Switch(
+                                checked = keepKeyboardOpen,
+                                onCheckedChange = { keepKeyboardOpen = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = playButtonColor,
+                                    checkedTrackColor = playButtonColor.copy(alpha = 0.5f),
+                                    uncheckedThumbColor = iconTint,
+                                    uncheckedTrackColor = iconTint.copy(alpha = 0.3f)
+                                )
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        // Initial Message
                         Text(
                             text = "Initial Message",
                             style = MaterialTheme.typography.titleMedium,
@@ -1078,27 +1176,103 @@ fun AnimeGirlChatScreen() {
                         
                         Spacer(modifier = Modifier.height(8.dp))
                         
+                        // AI Display Name
+                        Text(
+                            text = "AI Display Name",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = iconTint
+                        )
+                        TextField(
+                            value = aiDisplayName,
+                            onValueChange = { aiDisplayName = it },
+                            placeholder = { Text("Enter AI name...", color = placeholderColor) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = sentBubbleColor,
+                                unfocusedContainerColor = sentBubbleColor,
+                                focusedTextColor = iconTint,
+                                unfocusedTextColor = iconTint,
+                                focusedPlaceholderColor = placeholderColor,
+                                unfocusedPlaceholderColor = placeholderColor,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        // Greeting Author
+                        Text(
+                            text = "Greeting Author",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = iconTint
+                        )
+                        TextField(
+                            value = greetingAuthor,
+                            onValueChange = { greetingAuthor = it },
+                            placeholder = { Text("Enter greeting author...", color = placeholderColor) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = sentBubbleColor,
+                                unfocusedContainerColor = sentBubbleColor,
+                                focusedTextColor = iconTint,
+                                unfocusedTextColor = iconTint,
+                                focusedPlaceholderColor = placeholderColor,
+                                unfocusedPlaceholderColor = placeholderColor,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        // @qwqc
+                        Text(
+                            text = "@qwqc",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = iconTint
+                        )
+                        TextField(
+                            value = atQwqc,
+                            onValueChange = { atQwqc = it },
+                            placeholder = { Text("Enter @qwqc...", color = placeholderColor) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = sentBubbleColor,
+                                unfocusedContainerColor = sentBubbleColor,
+                                focusedTextColor = iconTint,
+                                unfocusedTextColor = iconTint,
+                                focusedPlaceholderColor = placeholderColor,
+                                unfocusedPlaceholderColor = placeholderColor,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        // Profile Pictures Section (Compact)
                         Text(
                             text = "Profile Pictures",
                             style = MaterialTheme.typography.titleMedium,
                             color = iconTint
                         )
                         
-                        // AI Profile Picture Section
-                        Text(
-                            text = "AI Profile Picture",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
-                        )
-                        
+                        // AI Profile Picture
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            // AI Profile Picture Display
+                            Text("AI:", color = iconTint, modifier = Modifier.width(40.dp))
                             Box(
                                 modifier = Modifier
-                                    .size(60.dp)
+                                    .size(40.dp)
                                     .clip(CircleShape)
                                     .background(MaterialTheme.colorScheme.surfaceVariant)
                             ) {
@@ -1114,70 +1288,48 @@ fun AnimeGirlChatScreen() {
                                         imageVector = Icons.Default.Person,
                                         contentDescription = "AI Profile Picture",
                                         modifier = Modifier
-                                            .size(30.dp)
+                                            .size(20.dp)
                                             .align(Alignment.Center),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
-                            
-                            Spacer(modifier = Modifier.width(16.dp))
-                            
-                            Column(modifier = Modifier.weight(1f)) {
-                                Button(
-                                    onClick = { aiImagePicker.launch("image/*") },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Add,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Select AI Profile Picture")
-                                }
-                                
-                                if (aiProfilePictureUri != null) {
-                                    TextButton(
-                                        onClick = {
-                                            aiProfilePictureUri = null
-                                            // Delete from local storage
-                                            ChatStorageHelper.deleteImageFromLocalStorage(context, "ai")
-                                            // Clear from preferences
-                                            context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
-                                                .edit()
-                                                .remove("ai_profile_picture")
-                                                .apply()
-                                        },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Remove AI Profile Picture")
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = { aiImagePicker.launch("image/*") },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = playButtonColor)
+                            ) {
+                                Text("Select", color = Color.Black, fontSize = 12.sp)
+                            }
+                            if (aiProfilePictureUri != null) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                IconButton(
+                                    onClick = {
+                                        aiProfilePictureUri = null
+                                        ChatStorageHelper.deleteImageFromLocalStorage(context, "ai")
+                                        context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
+                                            .edit()
+                                            .remove("ai_profile_picture")
+                                            .apply()
                                     }
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Remove", tint = Color.Red, modifier = Modifier.size(16.dp))
                                 }
                             }
                         }
                         
-                        // User Profile Picture Section
-                        Text(
-                            text = "User Profile Picture",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
-                        )
+                        Spacer(modifier = Modifier.height(4.dp))
                         
+                        // User Profile Picture
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            // User Profile Picture Display
+                            Text("User:", color = iconTint, modifier = Modifier.width(40.dp))
                             Box(
                                 modifier = Modifier
-                                    .size(60.dp)
+                                    .size(40.dp)
                                     .clip(CircleShape)
                                     .background(MaterialTheme.colorScheme.surfaceVariant)
                             ) {
@@ -1193,116 +1345,279 @@ fun AnimeGirlChatScreen() {
                                         imageVector = Icons.Default.Person,
                                         contentDescription = "User Profile Picture",
                                         modifier = Modifier
-                                            .size(30.dp)
+                                            .size(20.dp)
                                             .align(Alignment.Center),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
-                            
-                            Spacer(modifier = Modifier.width(16.dp))
-                            
-                            Column(modifier = Modifier.weight(1f)) {
-                                Button(
-                                    onClick = { userImagePicker.launch("image/*") },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Add,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Select User Profile Picture")
-                                }
-                                
-                                if (userProfilePictureUri != null) {
-                                    TextButton(
-                                        onClick = {
-                                            userProfilePictureUri = null
-                                            // Delete from local storage
-                                            ChatStorageHelper.deleteImageFromLocalStorage(context, "user")
-                                            // Clear from preferences
-                                            context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
-                                                .edit()
-                                                .remove("user_profile_picture")
-                                                .apply()
-                                        },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Remove User Profile Picture")
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = { userImagePicker.launch("image/*") },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = playButtonColor)
+                            ) {
+                                Text("Select", color = Color.Black, fontSize = 12.sp)
+                            }
+                            if (userProfilePictureUri != null) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                IconButton(
+                                    onClick = {
+                                        userProfilePictureUri = null
+                                        ChatStorageHelper.deleteImageFromLocalStorage(context, "user")
+                                        context.getSharedPreferences("chat_settings", Context.MODE_PRIVATE)
+                                            .edit()
+                                            .remove("user_profile_picture")
+                                            .apply()
                                     }
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Remove", tint = Color.Red, modifier = Modifier.size(16.dp))
                                 }
                             }
                         }
-
-                        Text(
-                            text = "AI Display Name",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = iconTint
-                        )
-                        TextField(
-                            value = aiDisplayName,
-                            onValueChange = { aiDisplayName = it },
-                            placeholder = { Text("Enter AI name...", color = placeholderColor) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "Greeting Author",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = iconTint
-                        )
-                        TextField(
-                            value = greetingAuthor,
-                            onValueChange = { greetingAuthor = it },
-                            placeholder = { Text("Enter greeting author...", color = placeholderColor) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "@qwqc",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = iconTint
-                        )
-                        TextField(
-                            value = atQwqc,
-                            onValueChange = { atQwqc = it },
-                            placeholder = { Text("Enter @qwqc...", color = placeholderColor) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
                     }
                 } else {
                     // AI Script Tab
                     Column(modifier = Modifier.fillMaxWidth()) {
+                        // Script Selection and Management
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Scripted Replies", style = MaterialTheme.typography.titleMedium)
+                            Text("Scripts", style = MaterialTheme.typography.titleMedium, color = iconTint)
                             Spacer(Modifier.weight(1f))
-                            Button(onClick = {
-                                aiScriptIndex = 0
-                            }) {
-                                Text("Start from 1 again")
+                            Button(
+                                onClick = {
+                                    aiScripts.add(AIScript("New Script", emptyList(), 0))
+                                    currentScriptIndex = aiScripts.size - 1
+                                    aiScriptReplies.clear()
+                                    aiScriptIndex = 0
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = playButtonColor)
+                            ) {
+                                Text("New Script", color = Color.Black, fontSize = 12.sp)
                             }
                         }
+                        
+                        Spacer(Modifier.height(8.dp))
+                        
+                        // Script Dropdown
+                        var expanded by remember { mutableStateOf(false) }
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            Button(
+                                onClick = { expanded = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = sentBubbleColor)
+                            ) {
+                                Text(
+                                    aiScripts.getOrNull(currentScriptIndex)?.name ?: "No Scripts",
+                                    color = iconTint,
+                                    modifier = Modifier.weight(1f),
+                                    textAlign = TextAlign.Start
+                                )
+                                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Dropdown", tint = iconTint)
+                            }
+                            
+                            DropdownMenu(
+                                expanded = expanded,
+                                onDismissRequest = { expanded = false },
+                                modifier = Modifier.background(sentBubbleColor)
+                            ) {
+                                aiScripts.forEachIndexed { index, script ->
+                                    var isRenaming by remember { mutableStateOf(false) }
+                                    var newName by remember { mutableStateOf(script.name) }
+                                    
+                                    if (isRenaming) {
+                                        DropdownMenuItem(
+                                            text = { 
+                                                TextField(
+                                                    value = newName,
+                                                    onValueChange = { newName = it },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    singleLine = true,
+                                                    colors = TextFieldDefaults.colors(
+                                                        focusedContainerColor = Color.Transparent,
+                                                        unfocusedContainerColor = Color.Transparent,
+                                                        focusedTextColor = iconTint,
+                                                        unfocusedTextColor = iconTint,
+                                                        focusedPlaceholderColor = placeholderColor,
+                                                        unfocusedPlaceholderColor = placeholderColor,
+                                                        unfocusedIndicatorColor = Color.Transparent,
+                                                        focusedIndicatorColor = Color.Transparent
+                                                    )
+                                                )
+                                            },
+                                            onClick = { },
+                                            trailingIcon = {
+                                                Row {
+                                                    IconButton(
+                                                        onClick = {
+                                                            if (newName.isNotBlank()) {
+                                                                aiScripts[index] = aiScripts[index].copy(name = newName)
+                                                            }
+                                                            isRenaming = false
+                                                        }
+                                                    ) {
+                                                        Icon(Icons.Default.Check, contentDescription = "Save", tint = iconTint, modifier = Modifier.size(16.dp))
+                                                    }
+                                                    IconButton(
+                                                        onClick = {
+                                                            newName = script.name
+                                                            isRenaming = false
+                                                        }
+                                                    ) {
+                                                        Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                                    }
+                                                }
+                                            },
+                                            modifier = Modifier.background(
+                                                if (index == currentScriptIndex) playButtonColor.copy(alpha = 0.3f) else Color.Transparent
+                                            )
+                                        )
+                                    } else {
+                                        DropdownMenuItem(
+                                            text = { 
+                                                Text(script.name, color = iconTint)
+                                            },
+                                            onClick = {
+                                                currentScriptIndex = index
+                                                aiScriptReplies.clear()
+                                                aiScriptReplies.addAll(script.replies)
+                                                aiScriptIndex = script.currentIndex
+                                                expanded = false
+                                            },
+                                            trailingIcon = {
+                                                Row {
+                                                    IconButton(
+                                                        onClick = {
+                                                            isRenaming = true
+                                                        }
+                                                    ) {
+                                                        Icon(Icons.Default.Edit, contentDescription = "Rename", tint = iconTint, modifier = Modifier.size(16.dp))
+                                                    }
+                                                    IconButton(
+                                                        onClick = {
+                                                            // Don't allow deleting the last script
+                                                            if (aiScripts.size > 1) {
+                                                                aiScripts.removeAt(index)
+                                                                // If we deleted the current script, switch to the first available script
+                                                                if (currentScriptIndex >= aiScripts.size) {
+                                                                    currentScriptIndex = 0
+                                                                }
+                                                                // Load the current script data
+                                                                val currentScript = aiScripts.getOrNull(currentScriptIndex)
+                                                                if (currentScript != null) {
+                                                                    aiScriptReplies.clear()
+                                                                    aiScriptReplies.addAll(currentScript.replies)
+                                                                    aiScriptIndex = currentScript.currentIndex
+                                                                }
+                                                                expanded = false
+                                                            }
+                                                        }
+                                                    ) {
+                                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                                    }
+                                                }
+                                            },
+                                            modifier = Modifier.background(
+                                                if (index == currentScriptIndex) playButtonColor.copy(alpha = 0.3f) else Color.Transparent
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Spacer(Modifier.height(8.dp))
+                        
+                        // Current Script Controls
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Current Script", style = MaterialTheme.typography.titleMedium, color = iconTint)
+                            Spacer(Modifier.weight(1f))
+                            
+                            // Restart from any position
+                            var showRestartDialog by remember { mutableStateOf(false) }
+                            Button(
+                                onClick = { showRestartDialog = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = playButtonColor)
+                            ) {
+                                Text("Restart from...", color = Color.Black, fontSize = 12.sp)
+                            }
+                            
+                            if (showRestartDialog) {
+                                AlertDialog(
+                                    onDismissRequest = { showRestartDialog = false },
+                                    title = { Text("Restart from Position", color = iconTint) },
+                                    text = {
+                                        Column {
+                                            Text("Select position to restart from:", color = iconTint)
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            LazyColumn(
+                                                modifier = Modifier.heightIn(max = 200.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                items(aiScriptReplies.size + 1) { idx ->
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .clickable {
+                                                                aiScriptIndex = idx
+                                                                showRestartDialog = false
+                                                            }
+                                                            .padding(8.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text(
+                                                            "Position ${idx + 1}",
+                                                            color = iconTint,
+                                                            modifier = Modifier.weight(1f)
+                                                        )
+                                                        if (idx < aiScriptReplies.size) {
+                                                            Text(
+                                                                aiScriptReplies[idx].take(30) + if (aiScriptReplies[idx].length > 30) "..." else "",
+                                                                color = placeholderColor,
+                                                                fontSize = 12.sp
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    confirmButton = {
+                                        TextButton(onClick = { showRestartDialog = false }) {
+                                            Text("Cancel", color = iconTint)
+                                        }
+                                    },
+                                    containerColor = backgroundColor
+                                )
+                            }
+                        }
+                        
+                        Spacer(Modifier.height(8.dp))
+                        
+                        // Current Position Indicator
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "Current Position: ${aiScriptIndex + 1}/${aiScriptReplies.size}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = placeholderColor
+                            )
+                            Spacer(Modifier.weight(1f))
+                            if (aiScriptReplies.isNotEmpty()) {
+                                Button(
+                                    onClick = { aiScriptIndex = 0 },
+                                    colors = ButtonDefaults.buttonColors(containerColor = playButtonColor)
+                                ) {
+                                    Text("Reset to 1", color = Color.Black, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                        
                         Spacer(Modifier.height(8.dp))
                         
                         // Scrollable list of replies
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 300.dp), // Limit height to prevent dialog from becoming too large
+                                .heightIn(max = 250.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             items(aiScriptReplies.size) { idx ->
@@ -1310,12 +1625,12 @@ fun AnimeGirlChatScreen() {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(if (idx == aiScriptIndex) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent)
+                                        .background(if (idx == aiScriptIndex) playButtonColor.copy(alpha = 0.3f) else Color.Transparent)
                                         .padding(4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     if (idx == aiScriptIndex) {
-                                        Text("→", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 4.dp))
+                                        Text("→", color = playButtonColor, modifier = Modifier.padding(end = 4.dp))
                                     } else {
                                         Spacer(Modifier.width(16.dp))
                                     }
@@ -1365,7 +1680,7 @@ fun AnimeGirlChatScreen() {
                         
                         Spacer(Modifier.height(8.dp))
                         
-                        // Add new reply section (fixed at bottom)
+                        // Add new reply section
                         var newReply by remember { mutableStateOf("") }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             TextField(

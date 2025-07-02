@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.CAIFakeChat" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.Character_AI" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- Completely remove splash screen -->
+        <item name="android:windowSplashScreenAnimatedIcon">@null</item>
+        <item name="android:windowSplashScreenBackground">@android:color/transparent</item>
+        <item name="android:windowSplashScreenBrandingImage">@null</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+        <!-- Make the window background transparent to avoid any flash -->
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <!-- Disable splash screen entirely -->
+        <item name="android:windowSplashScreenBehavior">@null</item>
+    </style>
 </resources>
