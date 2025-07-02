@@ -931,15 +931,6 @@ fun AnimeGirlChatScreen() {
                                         }
                                             }
                                         }
-                                        Spacer(modifier = Modifier.width(16.dp))
-                                        Icon(
-                                            imageVector = Icons.Default.Refresh,
-                                            contentDescription = "Refresh",
-                                            tint = Color.White,
-                                            modifier = Modifier
-                                                .size(20.dp)
-                                                .clickable { /* Refresh functionality */ }
-                                        )
                                     }
                                     
 
@@ -1025,7 +1016,7 @@ fun AnimeGirlChatScreen() {
                                 Spacer(modifier = Modifier.width(8.dp))
                             }
                         }
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(0.dp))
                         Box(
                             modifier = Modifier
                                 .size(60.dp)
@@ -1066,7 +1057,7 @@ fun AnimeGirlChatScreen() {
                                     modifier = Modifier
                                         .size(42.dp)
                                         .background(
-                                            color = playButtonColor, // Same light blue as play button
+                                            color = playButtonColor,
                                             shape = CircleShape
                                         ),
                                     contentAlignment = Alignment.Center
@@ -1076,10 +1067,15 @@ fun AnimeGirlChatScreen() {
                                         contentDescription = "Send",
                                         modifier = Modifier
                                             .size(25.dp)
-                                            .graphicsLayer(rotationZ = -45f), // 45 degrees rotation
-                                        tint = Color.Black // White icon on blue background
+                                            .graphicsLayer(rotationZ = -45f)
+                                            .offset(x = (-1).dp, y = 4.dp), // Shift left and down
+                                        tint = Color.Black
                                     )
                                 }
+
+
+
+
                             } else {
                                 // Original icon when no text
                                 Icon(
@@ -1090,7 +1086,7 @@ fun AnimeGirlChatScreen() {
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.width(5.dp))
+                        Spacer(modifier = Modifier.width(0.dp))
                     }
             
             // Footer - Fixed at bottom, outside of scrollable area
